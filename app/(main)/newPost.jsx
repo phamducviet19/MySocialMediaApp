@@ -3,8 +3,8 @@ import Feather from '@expo/vector-icons/Feather'
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5'
 import { Video } from 'expo-av'
 import * as ImagePicker from 'expo-image-picker'
-import { useRouter } from 'expo-router'
-import React, { useRef, useState } from 'react'
+import { useLocalSearchParams, useRouter } from 'expo-router'
+import React, { useEffect, useRef, useState } from 'react'
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import Avatar from '../../components/avatar'
 import Button from '../../components/Button'
@@ -18,12 +18,25 @@ import { getSupabaseFileUrl } from '../../services/imageService'
 import { createOrUpdatePost } from '../../services/postService'
 
 const NewPost = () => {
+
+  const post = useLocalSearchParams();
+  console.log('post: ',post);
   const {user} = useAuth();
   const bodyRef = useRef("");
   const editorRef = useRef(null);
   const router = useRouter();
   const[loading,setLoading] = useState(false);
   const [file,setFile] = useState(file); //nhớ để lại là file
+
+  useEffect(()=>{
+    if(post && post.id){
+      bodyRef.current = post.body;
+      setFile(post.file || null);
+      setTimeout(() => {
+        editorRef?.current?.setContentHTML(post.body);
+      }, 300);
+    }
+  },[])
 
   const onPick = async (isImage)=>{
     let mediaConfig = {
@@ -78,6 +91,9 @@ const NewPost = () => {
       body: bodyRef.current,
       userId: user?.id,
     }
+
+    if(post && post.id) data.id = post.id;
+
     setLoading(true);
     let res = await createOrUpdatePost(data);
     setLoading(false);
@@ -91,7 +107,7 @@ const NewPost = () => {
     }
      
   }
-  console.log('file uri: ',getFileUri(file));
+  // console.log('file uri: ',getFileUri(file));
   return (
     <ScreenWrapper bg='white'>
       <View style={styles.container}>
@@ -157,7 +173,7 @@ const NewPost = () => {
         </ScrollView>
         <Button
             buttonStyle={{height:hp(6.2)}}
-            title='Post'
+            title={post && post.id? "Update":"Post"}
             loading={loading}
             hasShadow={false}
             onPress={onSubmit}

@@ -1,18 +1,19 @@
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Alert, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import React, { useEffect, useState } from 'react'
 import { theme } from '../constants/theme'
-import { hp,wp } from '../helpers/common'
+import { hp,stripHtmlTags,wp } from '../helpers/common'
 import Avatar from './avatar'
 import moment from 'moment/moment'
 import Entypo from '@expo/vector-icons/Entypo';
 import RenderHtml from 'react-native-render-html';
 import { Image } from 'expo-image'
-import { getSupabaseFileUrl } from '../services/imageService'
+import { downloadFile, getSupabaseFileUrl } from '../services/imageService'
 import { Video } from 'expo-av'
 import AntDesign from '@expo/vector-icons/AntDesign';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { createPostLike } from '../services/postService'
+import { createPostLike, removePostLike } from '../services/postService'
 import { set } from 'ramda'
+import Loading from '../components/Loading'
 
 const textStyle = {
   color: theme.colors.dark,
@@ -34,6 +35,10 @@ const PostCard = ({
     currentUser,
     router,
     hasShadow = true,
+    showMoreIcon = true,
+    showDelete = false,
+    onDelete=()=>{},
+    onEdit=()=>{}
 }) => {
     const shadowStyles ={
         shadowOffset: {
@@ -46,26 +51,69 @@ const PostCard = ({
     }
 
     const [likes, setLikes] = useState([]);
+    const [loading, setLoading] = useState(false);
+
     useEffect(()=>{
       setLikes(item?.postLikes);
     },[])
 
-    const createAt = moment(item?.created_at).format('MMM D');
-    const liked = likes.filter(like=> like.userId==currentUser?.id)[0? true: false];
-    const openPostDetails = ()=>{
-
+    const onShare = async ()=>{
+      let content = {message: stripHtmlTags(item?.body)};
+      if(item?.file){
+        setLoading(true);
+        let url = await downloadFile(getSupabaseFileUrl(item?.file).uri);
+        setLoading(false);
+        content.url = url;
+      }
+      Share.share(content);
     }
-    const onLike = async () =>{
-      let data ={
-        userId: currentUser?.id,
-        postId: item?.id
+
+    const createAt = moment(item?.created_at).format('MMM D');
+    // const liked = likes.filter(like=> like.userId==currentUser?.id)[0? true: false];
+    const liked = likes?.some(like => like.userId === currentUser?.id);
+
+    const openPostDetails = ()=>{
+      if(!showMoreIcon) return null;
+      router.push({pathname: "(main)/postDetails", params: {postId: item?.id}})
+    }
+
+    const onLike = async ()=>{
+      if(liked){
+        let updateLikes = likes.filter(like=> like.userId!=currentUser?.id);
+        setLikes([...updateLikes])
+        let res = await removePostLike(item?.id, currentUser?.id);
+        console.log('remove like: ',res);
+        if(!res.success){
+          Alert.alert('Post','Something went wrong!');
+        }
       }
-      setLikes([...likes, data])
-      let res = await createPostLike(data);
-      console.log('res: ',res);
-      if(!res.success){
-        Alert.alert('Post','Something went wrong!');
+      else{
+        let data ={
+          userId: currentUser?.id,
+          postId: item?.id
+        }
+        setLikes([...likes, data])
+        let res = await createPostLike(data);
+        console.log('added like: ',res);
+        if(!res.success){
+          Alert.alert('Post','Something went wrong!');
+        }
       }
+    }
+
+    const handlePostDelete = ()=>{
+      Alert.alert('Confirm Delete','Are you sure you want to delete?',[
+                      {
+                          text : 'Cancel',
+                          onPress : ()=> console.log('modal cancelled'),
+                          style : 'cancel'
+                      },
+                      {
+                          text : 'Delete',
+                          onPress: ()=> onDelete(item),
+                          style : 'destructive'
+                      }
+                  ])
     }
 
   return (
@@ -82,9 +130,27 @@ const PostCard = ({
             <Text style={styles.postTime}>{createAt}</Text>
            </View>
         </View>
-           <TouchableOpacity onPress={openPostDetails}>
+        {
+          showMoreIcon && (
+            <TouchableOpacity onPress={openPostDetails}>
               <Entypo name="dots-three-horizontal" size={24} color={theme.colors.text} />
-           </TouchableOpacity>
+            </TouchableOpacity>
+          )
+        }
+        
+        {
+          showDelete && currentUser.id == item?.userId && (
+            <View style = {styles.actions}>
+              <TouchableOpacity onPress={()=>onEdit(item)}>
+                <Entypo name="edit" size={21} color={theme.colors.text} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handlePostDelete}>
+                <AntDesign name="delete" size={23} color={theme.colors.rose}/>
+              </TouchableOpacity>
+            </View>
+          )
+        }
+
       </View>
       <View style={styles.content}>
         <View style={styles.postBody}>
@@ -138,19 +204,25 @@ const PostCard = ({
           </Text>
         </View>
         <View style={styles.footerButton}>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={openPostDetails}>
             <FontAwesome name="commenting-o" size={24} color={theme.colors.textLight} />
           </TouchableOpacity>
           <Text style={styles.count}>
             {
-              0
+              item?.comments[0]?.count        
             }
           </Text>
         </View>
         <View style={styles.footerButton}>
-          <TouchableOpacity>
-            <AntDesign name="sharealt" size={24} color={theme.colors.textLight} />
-          </TouchableOpacity>
+          {
+            loading? (
+                <Loading size='small' />
+            ):(
+                <TouchableOpacity onPress={onShare}>
+                  <AntDesign name="sharealt" size={24} color={theme.colors.textLight} />
+                </TouchableOpacity>
+            )
+          }
         </View>
       </View>
     </View>
@@ -214,7 +286,7 @@ const styles = StyleSheet.create({
     alignItems:'center',
     gap:4
   },
-  action:{
+  actions:{
     flexDirection:'row',
     alignItems:'center',
     gap:18
